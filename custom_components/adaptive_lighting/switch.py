@@ -103,9 +103,11 @@ from .const import (
     CONF_INTERVAL,
     CONF_LIGHTS,
     CONF_MANUAL_CONTROL,
-    CONF_MAX_BRIGHTNESS,
+    CONF_NOON_BRIGHTNESS,
     CONF_MAX_COLOR_TEMP,
-    CONF_MIN_BRIGHTNESS,
+    CONF_MIDNIGHT_BRIGHTNESS,
+    CONF_SUNRISE_BRIGHTNESS,
+    CONF_SUNSET_BRIGHTNESS,
     CONF_MIN_COLOR_TEMP,
     CONF_ONLY_ONCE,
     CONF_PREFER_RGB_COLOR,
@@ -585,9 +587,11 @@ class AdaptiveSwitch(SwitchEntity, RestoreEntity):
         self._sun_light_settings = SunLightSettings(
             name=self._name,
             astral_location=location,
-            max_brightness=data[CONF_MAX_BRIGHTNESS],
+            noon_brightness=data[CONF_NOON_BRIGHTNESS],
             max_color_temp=data[CONF_MAX_COLOR_TEMP],
-            min_brightness=data[CONF_MIN_BRIGHTNESS],
+            midnight_brightness=data[CONF_MIDNIGHT_BRIGHTNESS],
+            sunrise_brightness=data[CONF_SUNRISE_BRIGHTNESS],
+            sunset_brightness=data[CONF_SUNSET_BRIGHTNESS],
             min_color_temp=data[CONF_MIN_COLOR_TEMP],
             sleep_brightness=data[CONF_SLEEP_BRIGHTNESS],
             sleep_color_temp=data[CONF_SLEEP_COLOR_TEMP],
@@ -1051,9 +1055,11 @@ class SunLightSettings:
 
     name: str
     astral_location: astral.Location
-    max_brightness: int
+    noon_brightness: int
     max_color_temp: int
-    min_brightness: int
+    midnight_brightness: int
+    sunrise_brightness: int
+    sunset_brightness: int
     min_color_temp: int
     sleep_brightness: int
     sleep_color_temp: int
@@ -1167,13 +1173,31 @@ class SunLightSettings:
 
     def calc_brightness_pct(self, percent: float, is_sleep: bool) -> float:
         """Calculate the brightness in %."""
+        now = dt_util.utcnow()
+
+        target_time = now + timedelta(seconds=transition)
+        target_ts = target_time.timestamp()
+        today = self.relevant_events(target_time)
+        (prev_event, prev_ts), (next_event, next_ts) = today
+
+
         if is_sleep:
             return self.sleep_brightness
-        if percent > 0:
-            return self.max_brightness
-        delta_brightness = self.max_brightness - self.min_brightness
+        if next_event == SUN_EVENT_NOON:
+            next_brightness = self.noon_brightness
+            prev_brightness = self.sunrise_brightness
+        elif next_event == SUN_EVENT_SUNSET:
+            next_brightness = self.sunset_brightness
+            prev_brightness = self.noon_brightness
+        elif next_event == SUN_EVENT_MIDNIGHT:
+            next_brightness = self.midnight_brightness
+            prev_brightness = self.sunset_brightness
+        elif next_event == SUN_EVENT_SUNRISE:
+            next_brightness = self.sunrise_brightness
+            prev_brightness = self.midnight_brightness
+        delta_brightness = abs(next_brightness - prev_brightness)
         percent = 1 + percent
-        return (delta_brightness * percent) + self.min_brightness
+        return (delta_brightness * percent) + self.prev_brightness
 
     def calc_color_temp_kelvin(self, percent: float, is_sleep: bool) -> float:
         """Calculate the color temperature in Kelvin."""
